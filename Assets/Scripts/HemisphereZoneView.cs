@@ -1,75 +1,95 @@
 using UnityEngine;
+using UnityEngine.Rendering;
 
 [DefaultExecutionOrder(50)]
-[RequireComponent(typeof(MeshFilter))]
-[RequireComponent(typeof(MeshRenderer))]
+[DisallowMultipleComponent]
+[RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
 public class HemisphereZoneView : MonoBehaviour
 {
     [Header("Dependency")]
     [SerializeField] private MonoBehaviour zoneSource;
 
-    [Header("Appearance")]
+    [Header("View")]
     [SerializeField] private Material zoneMaterial;
-
-    [SerializeField] private int segments = 32;
-    [SerializeField] private int rings = 12;
+    [SerializeField, Range(12, 96)] private int segments = 48;
+    [SerializeField, Range(3, 32)] private int rings = 12;
+    [SerializeField, Min(0f)] private float surfaceOffset = 0.025f;
 
     private IAccumulationZoneState zone;
-    private Mesh zoneMesh;
+    private Mesh mesh;
+    private Material ownedMaterial;
 
     private void Awake()
     {
         zone = zoneSource as IAccumulationZoneState;
-
         if (zone == null)
         {
-            Debug.LogError(
-                "Zone source is not configured.",
-                this);
-
+            Debug.LogError("Hemisphere view requires an IAccumulationZoneState source.", this);
             enabled = false;
             return;
         }
 
-        zoneMesh = HemisphereMeshFactory.Create(
-            segments,
-            rings);
-
-        MeshFilter meshFilter = GetComponent<MeshFilter>();
-        MeshRenderer meshRenderer = GetComponent<MeshRenderer>();
-
-        meshFilter.sharedMesh = zoneMesh;
-
-        if (zoneMaterial != null)
-            meshRenderer.sharedMaterial = zoneMaterial;
-
-        UpdateView();
+        mesh = HemisphereMeshFactory.Create(segments, rings);
+        GetComponent<MeshFilter>().sharedMesh = mesh;
+        var meshRenderer = GetComponent<MeshRenderer>();
+        meshRenderer.sharedMaterial = GetMaterial();
+        meshRenderer.shadowCastingMode = ShadowCastingMode.Off;
+        meshRenderer.receiveShadows = false;
+        ApplyState();
     }
 
     private void LateUpdate()
     {
-        UpdateView();
-    }
-
-    private void UpdateView()
-    {
-        transform.localPosition = new Vector3(
-            zone.Position.x,
-            0.02f,
-            zone.Position.y);
-
-        transform.localScale =
-            Vector3.one * zone.Radius;
+        ApplyState();
     }
 
     private void OnDestroy()
     {
-        if (zoneMesh == null)
+        DestroyOwned(mesh);
+        DestroyOwned(ownedMaterial);
+    }
+
+    private void ApplyState()
+    {
+        if (zone == null)
+        {
             return;
+        }
+
+        Vector2 position = zone.Position;
+        transform.localPosition = new Vector3(position.x, surfaceOffset, position.y);
+        transform.localScale = Vector3.one * zone.Radius;
+    }
+
+    private Material GetMaterial()
+    {
+        if (zoneMaterial != null)
+        {
+            return zoneMaterial;
+        }
+
+        Shader shader = Shader.Find("Material Accumulation/Zone Overlay");
+        ownedMaterial = new Material(shader != null
+            ? shader
+            : Shader.Find("Universal Render Pipeline/Unlit"));
+        ownedMaterial.name = "Runtime Zone Material";
+        return ownedMaterial;
+    }
+
+    private static void DestroyOwned(Object target)
+    {
+        if (target == null)
+        {
+            return;
+        }
 
         if (Application.isPlaying)
-            Destroy(zoneMesh);
+        {
+            Destroy(target);
+        }
         else
-            DestroyImmediate(zoneMesh);
+        {
+            DestroyImmediate(target);
+        }
     }
 }
